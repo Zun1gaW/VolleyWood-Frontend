@@ -2,6 +2,10 @@ import React, { createContext, useState, useContext, useEffect } from "react";
 
 const AuthContext = createContext(null);
 
+const API_AUTH_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/auth/login`
+  : "http://localhost:3001/api/auth/login";
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -16,7 +20,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      const response = await fetch("http://localhost:3001/api/auth/login", {
+      const response = await fetch(API_AUTH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -35,6 +39,7 @@ export const AuthProvider = ({ children }) => {
         };
       }
     } catch (error) {
+      console.error("Error en el proceso de login:", error);
       return {
         success: false,
         message: "No se pudo conectar con el servidor de autenticación.",
@@ -54,5 +59,4 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Hook personalizado para usar la autenticación fácilmente
 export const useAuth = () => useContext(AuthContext);
