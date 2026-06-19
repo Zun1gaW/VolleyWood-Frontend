@@ -1,0 +1,36 @@
+/* ── VALORES POR DEFECTO (MODO CLARO) ── */
+:root {
+  --c-bg: #f8fafc;
+  --c-surface: #ffffff;
+  --c-surface2: #f1f5f9;
+  --c-border: #e2e8f0;
+  --c-text: #0f172a;
+  --c-muted: #64748b;
+  --c-accent: #2563eb;
+  --c-accent-dim: #eff6ff;
+  --c-success: #16a34a;
+  --c-danger: #dc2626;
+}
+
+/* ── CUANDO LA CLASE .dark ESTÁ ACTIVA EN EL HTML ── */
+:root.dark {
+  --c-bg: #0f172a;
+  --c-surface: #1e293b;
+  --c-surface2: #334155;
+  --c-border: #475569;
+  --c-text: #f8fafc;
+  --c-muted: #94a3b8;
+  --c-accent: #3b82f6;
+  --c-accent-dim: rgba(59, 130, 246, 0.1);
+  --c-success: #22c55e;
+  --c-danger: #ef4444;
+}
+
+/* Aplica las variables al body para que todo herede correctamente */
+body {
+  background-color: var(--c-bg);
+  color: var(--c-text);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
