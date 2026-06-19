@@ -53,7 +53,7 @@ function calcularStats(jugadores, restricciones) {
 
 // ─── Componente Principal ────────────────────────────────────────────────────
 
-export default function MainDashboard() {
+export default function App() {
   // UI
   const [activeTab, setActiveTab] = useState("jugadores");
   const [darkMode, setDarkMode] = useState(initDarkMode);
@@ -282,6 +282,7 @@ export default function MainDashboard() {
         error={error}
         prepararEdicion={prepararEdicion}
         handleEliminar={handleEliminarJugador}
+        onNuevoJugador={abrirModalNuevoJugador}
       />
     ),
     restricciones: (
