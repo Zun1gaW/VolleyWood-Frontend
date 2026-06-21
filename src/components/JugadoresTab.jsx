@@ -37,23 +37,6 @@ function LevelDots({ nivel }) {
   );
 }
 
-function EstadoBadge({ activo }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-        activo
-          ? "bg-[var(--c-success)]/10 text-[var(--c-success)]"
-          : "bg-[var(--c-muted)]/10 text-[var(--c-muted)]"
-      }`}
-    >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${activo ? "bg-[var(--c-success)]" : "bg-[var(--c-muted)]"}`}
-      />
-      {activo ? "Activo" : "Inactivo"}
-    </span>
-  );
-}
-
 // ─── Card view (mobile) ───────────────────────────────────────────────────────
 
 function JugadorCard({ jugador, prepararEdicion, handleEliminar }) {
@@ -71,7 +54,6 @@ function JugadorCard({ jugador, prepararEdicion, handleEliminar }) {
             </p>
           )}
         </div>
-        <EstadoBadge activo={jugador.activo} />
       </div>
 
       {/* Posiciones + nivel */}
@@ -210,7 +192,6 @@ export default function JugadoresTab({
               <th className="p-3">Pos. Principal</th>
               <th className="p-3 hidden lg:table-cell">Pos. Secundaria</th>
               <th className="p-3">Nivel</th>
-              <th className="p-3">Estado</th>
               <th className="p-3 text-right">Acciones</th>
             </tr>
           </thead>
@@ -241,9 +222,6 @@ export default function JugadoresTab({
                   </td>
                   <td className="p-3">
                     <LevelDots nivel={jugador.nivel} />
-                  </td>
-                  <td className="p-3">
-                    <EstadoBadge activo={jugador.activo} />
                   </td>
                   <td className="p-3 text-right">
                     <div className="inline-flex gap-2">

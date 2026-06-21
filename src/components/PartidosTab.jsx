@@ -299,8 +299,12 @@ export default function PartidosTab({
     cantLosas: 2,
   });
 
-  const [equipos, setEquipos] = useState(null);
-  const [fixture, setFixture] = useState(null);
+  // Estado atómico: equipos y fixture siempre se actualizan juntos,
+  // evitando renders intermedios donde uno existe y el otro no.
+  const [resultado, setResultado] = useState(null); // { equipos, fixture }
+
+  const equipos = resultado?.equipos ?? null;
+  const fixture = resultado?.fixture ?? null;
   const [nombreJornada, setNombreJornada] = useState("");
   const [fechaJornada, setFechaJornada] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -354,8 +358,7 @@ export default function PartidosTab({
   };
 
   const limpiarResultado = () => {
-    setEquipos(null);
-    setFixture(null);
+    setResultado(null);
     setJugadorSeleccionadoCambio(null);
     setJornadaSeleccionada(null);
   };
@@ -380,6 +383,89 @@ export default function PartidosTab({
 
   // ─── Generación ───────────────────────────────────────────────────────────────
 
+  // 🔑 Modificada para que RETORNE el fixture en lugar de buscar un "setFixture" que no existe
+  const generarFixturePartidos = (equiposActuales, puntosActuales) => {
+    if (!equiposActuales || equiposActuales.length < 2) return null;
+
+    const numEquipos = equiposActuales.length;
+    // Mapeamos los equipos reales
+    const listaEquiposIds = equiposActuales.map((e) => e.idTemp);
+
+    // Bandera para saber si originalmente era impar
+    const esImpar = numEquipos % 2 !== 0;
+
+    if (esImpar) {
+      listaEquiposIds.push("DESCANSO");
+    }
+
+    const totalEquiposEfectivos = listaEquiposIds.length;
+    const rondasAManejar = config.cantRondas || 3;
+
+    const rondas = Array.from({ length: rondasAManejar }, (_, r) => {
+      const partidosDeEstaRonda = [];
+      const copiaIds = [...listaEquiposIds];
+      const rondaIndex = r % (totalEquiposEfectivos - 1);
+
+      for (let i = 0; i < rondaIndex; i++) {
+        const ultimo = copiaIds.pop();
+        copiaIds.splice(1, 0, ultimo);
+      }
+
+      let losaActual = 1;
+      let equipoLibreEsteTurno = null; // 👈 Variable para capturar el que descansa
+
+      for (let i = 0; i < totalEquiposEfectivos / 2; i++) {
+        const eq1 = copiaIds[i];
+        const eq2 = copiaIds[totalEquiposEfectivos - 1 - i];
+
+        // 🔍 Si detectamos el "DESCANSO", el OTRO equipo es el que queda libre
+        if (eq1 === "DESCANSO") {
+          equipoLibreEsteTurno = eq2;
+          continue;
+        }
+        if (eq2 === "DESCANSO") {
+          equipoLibreEsteTurno = eq1;
+          continue;
+        }
+
+        let losa = losaActual;
+        if (config.cantLosas === 1) {
+          losa = 1;
+        } else {
+          losa = ((losaActual - 1) % config.cantLosas) + 1;
+          if ((r + 1) % 2 === 0) {
+            losa = config.cantLosas - losa + 1;
+          }
+        }
+
+        partidosDeEstaRonda.push({
+          id_partido_temp: `${r + 1}-${partidosDeEstaRonda.length}`,
+          equipo1: eq1,
+          equipo2: eq2,
+          losa: losa,
+          score_equipo1: "",
+          score_equipo2: "",
+        });
+
+        losaActual++;
+      }
+
+      // Buscamos el objeto completo del equipo que descansa para tener su nombre real
+      const infoEquipoDescansa =
+        equiposActuales.find((e) => e.idTemp === equipoLibreEsteTurno) || null;
+
+      return {
+        ronda: r + 1,
+        puntos: puntosActuales[r + 1] || 21,
+        partidos: partidosDeEstaRonda,
+        // 🔑 Guardamos la información del equipo que descansa en esta ronda específica
+        equipoDescansa: infoEquipoDescansa,
+      };
+    });
+
+    return rondas;
+  };
+
   const generarTorneoCompleto = () => {
     if (asistencia.length !== totalRequerido) {
       notify.warning(
@@ -389,19 +475,27 @@ export default function PartidosTab({
       return;
     }
 
-    const presentes = jugadores.filter((j) => asistencia.includes(j.id));
+    const asistenciaIdsNumeros = asistencia.map((id) => Number(id));
+    const presentes = jugadores.filter((j) =>
+      asistenciaIdsNumeros.includes(Number(j.id)),
+    );
+
     const bolsas = {
       armadores: presentes.filter((j) =>
-        ["armador", "armadora"].includes(j.posicion_principal?.toLowerCase()),
+        ["armador", "armadora"].includes(
+          j.posicion_principal?.trim().toLowerCase(),
+        ),
       ),
       opuestos: presentes.filter((j) =>
-        ["opuesto", "opuesta"].includes(j.posicion_principal?.toLowerCase()),
+        ["opuesto", "opuesta"].includes(
+          j.posicion_principal?.trim().toLowerCase(),
+        ),
       ),
       centrales: presentes.filter(
-        (j) => j.posicion_principal?.toLowerCase() === "central",
+        (j) => j.posicion_principal?.trim().toLowerCase() === "central",
       ),
       puntas: presentes.filter(
-        (j) => j.posicion_principal?.toLowerCase() === "punta",
+        (j) => j.posicion_principal?.trim().toLowerCase() === "punta",
       ),
     };
 
@@ -420,8 +514,8 @@ export default function PartidosTab({
 
     const restriccionesActivas = restricciones.filter(
       (r) =>
-        asistencia.includes(Number(r.jugador_a_id)) &&
-        asistencia.includes(Number(r.jugador_b_id)),
+        asistenciaIdsNumeros.includes(Number(r.jugador_a_id)) &&
+        asistenciaIdsNumeros.includes(Number(r.jugador_b_id)),
     );
 
     let mejoresEquipos = null;
@@ -449,22 +543,17 @@ export default function PartidosTab({
 
       let ok = true;
       for (const eq of candidatos) {
-        const ids = eq.jugadores.map((j) => j.id);
+        const ids = eq.jugadores.map((j) => Number(j.id));
         for (const r of restriccionesActivas) {
           const a = Number(r.jugador_a_id);
           const b = Number(r.jugador_b_id);
-          if (
-            r.tipo_restriccion === "Incompatible" &&
-            ids.includes(a) &&
-            ids.includes(b)
-          ) {
+          const tipo = r.tipo_restriccion?.trim().toLowerCase();
+
+          if (tipo === "incompatible" && ids.includes(a) && ids.includes(b)) {
             ok = false;
             break;
           }
-          if (
-            r.tipo_restriccion === "Obligatorio" &&
-            ids.includes(a) !== ids.includes(b)
-          ) {
+          if (tipo === "obligatorio" && ids.includes(a) !== ids.includes(b)) {
             ok = false;
             break;
           }
@@ -498,55 +587,35 @@ export default function PartidosTab({
       return;
     }
 
-    setEquipos(mejoresEquipos);
     const pts = { 1: 18, 2: 21, 3: 25 };
     setPuntosPorRonda(pts);
-    generarFixturePartidos(mejoresEquipos, pts);
+
+    // 🔑 Calculamos el fixture en una variable local primero
+    const fixtureGenerado = generarFixturePartidos(mejoresEquipos, pts);
+
+    if (!fixtureGenerado) {
+      notify.error("Error", "No se pudo estructurar el fixture de partidos.");
+      return;
+    }
+
+    // 🔑 ACTUALIZACIÓN DE ESTADO SIMULTÁNEA: Guardamos ambos elementos al mismo tiempo en 'resultado'
+    setResultado({
+      equipos: mejoresEquipos,
+      fixture: fixtureGenerado,
+    });
+
     notify.success(
       "¡Fixture generado!",
       "Los equipos y partidos están listos.",
     );
   };
 
-  const generarFixturePartidos = (equiposActuales, puntosActuales) => {
-    if (!equiposActuales || equiposActuales.length !== 4) return;
-
-    const cruces = [
-      { eq1: "A", eq2: "B", losa: 1 },
-      { eq1: "C", eq2: "D", losa: 2 },
-      { eq1: "A", eq2: "C", losa: 1 },
-      { eq1: "B", eq2: "D", losa: 2 },
-      { eq1: "A", eq2: "D", losa: 1 },
-      { eq1: "C", eq2: "B", losa: 2 },
-    ];
-
-    const rondas = Array.from({ length: config.cantRondas }, (_, r) => ({
-      ronda: r + 1,
-      puntos: puntosActuales[r + 1] || 21,
-      partidos: cruces.map((p, idx) => {
-        let losa = p.losa;
-        if (config.cantLosas > 1 && (r + 1) % 2 === 0)
-          losa = losa === 1 ? 2 : 1;
-        if (config.cantLosas === 1) losa = 1;
-        return {
-          id_partido_temp: `${r + 1}-${idx}`,
-          equipo1: p.eq1,
-          equipo2: p.eq2,
-          losa,
-          score_equipo1: "",
-          score_equipo2: "",
-        };
-      }),
-    }));
-
-    setFixture(rondas);
-  };
-
   // ─── Scores / Cambios ─────────────────────────────────────────────────────────
 
   const handleScoreChange = (rondaIndex, partidoId, campo, valor) => {
-    setFixture((prev) =>
-      prev.map((r, ri) =>
+    setResultado((prev) => ({
+      ...prev,
+      fixture: prev.fixture.map((r, ri) =>
         ri !== rondaIndex
           ? r
           : {
@@ -556,15 +625,18 @@ export default function PartidosTab({
               ),
             },
       ),
-    );
+    }));
   };
 
   const handlePuntosRondaChange = (rondaIndex, valor) => {
     const v = valor === "" ? "" : Number(valor);
     setPuntosPorRonda((prev) => ({ ...prev, [rondaIndex + 1]: v }));
-    setFixture((prev) =>
-      prev.map((r, ri) => (ri !== rondaIndex ? r : { ...r, puntos: v })),
-    );
+    setResultado((prev) => ({
+      ...prev,
+      fixture: prev.fixture.map((r, ri) =>
+        ri !== rondaIndex ? r : { ...r, puntos: v },
+      ),
+    }));
   };
 
   const handleCambioManual = (teamId, jugadorId) => {
@@ -594,16 +666,19 @@ export default function PartidosTab({
       eqB.jugadores[iB],
       eqA.jugadores[iA],
     ];
-    setEquipos(copia);
+    setResultado((prev) => ({ ...prev, equipos: copia }));
     setJugadorSeleccionadoCambio(null);
     notify.info("Cambio realizado", "Los jugadores han sido intercambiados.");
   };
 
   const handleNombreEquipoChange = (idTemp, nombre) => {
     if (esConsulta) return;
-    setEquipos((prev) =>
-      prev.map((e) => (e.idTemp === idTemp ? { ...e, nombre } : e)),
-    );
+    setResultado((prev) => ({
+      ...prev,
+      equipos: prev.equipos.map((e) =>
+        e.idTemp === idTemp ? { ...e, nombre } : e,
+      ),
+    }));
   };
 
   // ─── Persistencia ─────────────────────────────────────────────────────────────
@@ -679,15 +754,15 @@ export default function PartidosTab({
         setJornadaSeleccionada(j);
         setNombreJornada(j.nombre);
         if (j.fecha) setFechaJornada(j.fecha.split("T")[0]);
-        setEquipos(
-          j.equipos.map((eq) => ({
+        setResultado({
+          equipos: j.equipos.map((eq) => ({
             idTemp: eq.id_ref,
             nombre: eq.nombre,
             equipo_db_id: eq.equipo_db_id,
             jugadores: eq.jugadores,
           })),
-        );
-        setFixture(j.fixture);
+          fixture: j.fixture,
+        });
         setSubTab("nueva");
       } else {
         notify.error(
@@ -973,6 +1048,7 @@ export default function PartidosTab({
                         key={rondaData.ronda}
                         className="border border-[var(--c-border)] rounded-xl bg-[var(--c-surface)] overflow-hidden shadow-sm"
                       >
+                        {/* Cabecera de la Ronda */}
                         <div className="flex items-center justify-between px-3 py-2 bg-[var(--c-surface2)] border-b border-[var(--c-border)]">
                           <span className="text-xs font-bold text-[var(--c-text)]">
                             Ronda {rondaData.ronda}
@@ -994,6 +1070,21 @@ export default function PartidosTab({
                             <span>pts</span>
                           </div>
                         </div>
+
+                        {/* 🔑 MENSAJE DE EQUIPO EN DESCANSO (Si existe en esta ronda) */}
+                        {rondaData.equipoDescansa && (
+                          <div className="px-3 py-2 bg-amber-500/5 border-b border-dashed border-[var(--c-border)] flex items-center gap-1.5 text-[11px] text-amber-500 font-medium">
+                            <span className="animate-pulse">⏳</span>
+                            <span>
+                              Descansa:{" "}
+                              <span className="font-bold underline decoration-amber-500/30">
+                                {rondaData.equipoDescansa.nombre}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Listado de Partidos */}
                         <div className="divide-y divide-dashed divide-[var(--c-border)]">
                           {rondaData.partidos.map((partido, idx) => {
                             const n1 =
