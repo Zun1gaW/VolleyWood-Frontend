@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Users,
   Dices,
@@ -17,9 +17,48 @@ import {
   AlertTriangle,
   Info,
   XCircle,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  Shuffle,
 } from "lucide-react";
 import { jornadasService } from "../services/jornadasService";
 import * as XLSX from "xlsx";
+
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const POSICIONES = ["Armador", "Opuesto", "Central", "Punta"];
+
+const POS_COLOR = {
+  Armador: {
+    bg: "bg-blue-500/15",
+    text: "text-blue-500",
+    border: "border-blue-500/30",
+  },
+  Opuesto: {
+    bg: "bg-amber-500/15",
+    text: "text-amber-500",
+    border: "border-amber-500/30",
+  },
+  Central: {
+    bg: "bg-emerald-500/15",
+    text: "text-emerald-500",
+    border: "border-emerald-500/30",
+  },
+  Punta: {
+    bg: "bg-rose-500/15",
+    text: "text-rose-500",
+    border: "border-rose-500/30",
+  },
+};
+
+const POS_ABBR = {
+  Armador: "ARM",
+  Opuesto: "OPU",
+  Central: "CEN",
+  Punta: "PUN",
+};
 
 // ─── Scrollbar styles ──────────────────────────────────────────────────────────
 
@@ -30,20 +69,18 @@ function injectScrollbarStyles() {
   const style = document.createElement("style");
   style.id = SCROLLBAR_STYLE_ID;
   style.textContent = `
-    .vw-scroll {
-      scrollbar-width: thin;
-      scrollbar-color: rgba(168, 85, 247, 0.35) transparent;
-    }
-    .vw-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
-    .vw-scroll::-webkit-scrollbar-track { background: transparent; border-radius: 999px; }
-    .vw-scroll::-webkit-scrollbar-thumb { background: rgba(168,85,247,0.35); border-radius: 999px; transition: background 0.2s; }
-    .vw-scroll::-webkit-scrollbar-thumb:hover { background: rgba(168,85,247,0.65); }
-    .vw-scroll::-webkit-scrollbar-corner { background: transparent; }
-
-    @keyframes vw-toast-in  { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-    @keyframes vw-toast-out { from { opacity: 1; transform: translateY(0) scale(1); }      to { opacity: 0; transform: translateY(4px) scale(0.97); } }
-    .vw-toast-enter { animation: vw-toast-in  0.22s ease forwards; }
-    .vw-toast-exit  { animation: vw-toast-out 0.18s ease forwards; }
+    .vw-scroll { scrollbar-width: thin; scrollbar-color: rgba(168,85,247,.35) transparent; }
+    .vw-scroll::-webkit-scrollbar { width:4px; height:4px; }
+    .vw-scroll::-webkit-scrollbar-track { background:transparent; border-radius:999px; }
+    .vw-scroll::-webkit-scrollbar-thumb { background:rgba(168,85,247,.35); border-radius:999px; transition:background .2s; }
+    .vw-scroll::-webkit-scrollbar-thumb:hover { background:rgba(168,85,247,.65); }
+    .vw-scroll::-webkit-scrollbar-corner { background:transparent; }
+    @keyframes vw-toast-in  { from{opacity:0;transform:translateY(8px) scale(.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+    @keyframes vw-toast-out { from{opacity:1;transform:translateY(0) scale(1)} to{opacity:0;transform:translateY(4px) scale(.97)} }
+    .vw-toast-enter { animation:vw-toast-in  .22s ease forwards; }
+    .vw-toast-exit  { animation:vw-toast-out .18s ease forwards; }
+    @keyframes vw-slide-in { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+    .vw-slide-in { animation:vw-slide-in .2s ease forwards; }
   `;
   document.head.appendChild(style);
 }
@@ -94,7 +131,7 @@ function ToastItem({ toast, onRemove }) {
   }, [toast.id, onRemove]);
 
   useEffect(() => {
-    const t = setTimeout(dismiss, toast.duration ?? 4000);
+    const t = setTimeout(dismiss, toast.duration ?? 5000);
     return () => clearTimeout(t);
   }, [dismiss, toast.duration]);
 
@@ -102,18 +139,14 @@ function ToastItem({ toast, onRemove }) {
     <div
       className={`relative flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm max-w-sm w-full overflow-hidden ${v.bg} ${exiting ? "vw-toast-exit" : "vw-toast-enter"}`}
     >
-      {/* Progress bar */}
       <div
         className={`absolute bottom-0 left-0 h-[2px] ${v.bar} opacity-40`}
         style={{
-          animation: `vw-toast-out ${toast.duration ?? 4000}ms linear forwards`,
-          animationDelay: "0ms",
+          animation: `vw-toast-out ${toast.duration ?? 5000}ms linear forwards`,
           width: "100%",
         }}
       />
-
       <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${v.icon_color}`} />
-
       <div className="flex-1 min-w-0">
         {toast.title && (
           <p className={`text-xs font-bold leading-tight ${v.text}`}>
@@ -126,7 +159,6 @@ function ToastItem({ toast, onRemove }) {
           </p>
         )}
       </div>
-
       <button
         onClick={dismiss}
         className={`shrink-0 mt-0.5 opacity-50 hover:opacity-100 transition ${v.text}`}
@@ -152,16 +184,14 @@ function ToastContainer({ toasts, onRemove }) {
 
 function useToast() {
   const [toasts, setToasts] = useState([]);
-
   const toast = useCallback((type, title, message, duration) => {
     const id = ++_toastId;
     setToasts((prev) => [...prev, { id, type, title, message, duration }]);
   }, []);
-
-  const removeToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
+  const removeToast = useCallback(
+    (id) => setToasts((prev) => prev.filter((t) => t.id !== id)),
+    [],
+  );
   const notify = {
     success: (title, message, duration) =>
       toast("success", title, message, duration),
@@ -171,7 +201,6 @@ function useToast() {
       toast("warning", title, message, duration),
     info: (title, message, duration) => toast("info", title, message, duration),
   };
-
   return { toasts, removeToast, notify };
 }
 
@@ -202,15 +231,153 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-        active
-          ? "bg-purple-500 text-white shadow-sm"
-          : "text-[var(--c-muted)] hover:bg-[var(--c-surface2)] hover:text-[var(--c-text)]"
-      }`}
+      className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${active ? "bg-purple-500 text-white shadow-sm" : "text-[var(--c-muted)] hover:bg-[var(--c-surface2)] hover:text-[var(--c-text)]"}`}
     >
       <Icon className="h-3.5 w-3.5" />
       {label}
     </button>
+  );
+}
+
+/** Badge de posición coloreado */
+function PosBadge({ pos, small = false }) {
+  const c = POS_COLOR[pos] || {
+    bg: "bg-gray-500/10",
+    text: "text-gray-500",
+    border: "border-gray-500/20",
+  };
+  return (
+    <span
+      className={`inline-flex items-center font-bold border rounded ${c.bg} ${c.text} ${c.border} ${small ? "text-[8px] px-1 py-0" : "text-[9px] px-1.5 py-0.5"}`}
+    >
+      {POS_ABBR[pos] || pos?.substring(0, 3).toUpperCase() || "?"}
+    </span>
+  );
+}
+
+/** Panel de advertencia de posiciones con resolución interactiva */
+function PositionWarningPanel({ diagnostico, onResolve, onCancel }) {
+  const [asignaciones, setAsignaciones] = useState(() => {
+    const init = {};
+    diagnostico.candidatos?.forEach((c) => {
+      init[c.jugadorId] = c.posicionSugerida;
+    });
+    return init;
+  });
+
+  return (
+    <div className="vw-slide-in border border-amber-500/40 rounded-xl bg-amber-500/5 overflow-hidden shadow-md">
+      <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border-b border-amber-500/30">
+        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+        <span className="text-xs font-bold text-amber-700 dark:text-amber-300">
+          Posiciones insuficientes
+        </span>
+      </div>
+      <div className="p-4 space-y-3">
+        {/* Resumen del déficit */}
+        <div className="space-y-1">
+          {diagnostico.deficit.map((d) => (
+            <div key={d.pos} className="flex items-center gap-2 text-xs">
+              <PosBadge pos={d.pos} />
+              <span className="text-[var(--c-muted)]">
+                Necesitas{" "}
+                <span className="font-bold text-[var(--c-text)]">
+                  {d.necesario}
+                </span>
+                , tienes{" "}
+                <span className="font-bold text-amber-500">{d.disponible}</span>{" "}
+                → faltan{" "}
+                <span className="font-bold text-red-500">
+                  {d.necesario - d.disponible}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Candidatos con posición secundaria */}
+        {diagnostico.candidatos?.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--c-muted)]">
+              Jugadores con posición secundaria disponible — elige el rol para
+              esta jornada:
+            </p>
+            <div className="space-y-1.5">
+              {diagnostico.candidatos.map((c) => (
+                <div
+                  key={c.jugadorId}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-[var(--c-surface)] border border-[var(--c-border)]"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-[var(--c-text)] truncate">
+                      {c.nombre}
+                    </p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <PosBadge pos={c.posicionPrincipal} small />
+                      <span className="text-[8px] text-[var(--c-muted)]">
+                        ★{c.nivelPrincipal}
+                      </span>
+                      <span className="text-[8px] text-[var(--c-muted)] mx-0.5">
+                        →
+                      </span>
+                      <PosBadge pos={c.posicionSecundaria} small />
+                      <span className="text-[8px] text-[var(--c-muted)]">
+                        ★{c.nivelSecundario}
+                      </span>
+                    </div>
+                  </div>
+                  <select
+                    value={asignaciones[c.jugadorId] || c.posicionPrincipal}
+                    onChange={(e) =>
+                      setAsignaciones((prev) => ({
+                        ...prev,
+                        [c.jugadorId]: e.target.value,
+                      }))
+                    }
+                    className="text-[10px] font-bold px-1.5 py-1 rounded bg-[var(--c-surface2)] border border-[var(--c-border)] text-[var(--c-text)] focus:outline-none focus:border-purple-500"
+                  >
+                    <option value={c.posicionPrincipal}>
+                      {c.posicionPrincipal} (principal ★{c.nivelPrincipal})
+                    </option>
+                    <option value={c.posicionSecundaria}>
+                      {c.posicionSecundaria} (secundaria ★{c.nivelSecundario})
+                    </option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {diagnostico.sinSolucion && (
+          <div className="flex items-start gap-2 p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-600 dark:text-red-400">
+            <XCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>
+              No hay suficientes jugadores con posición secundaria para cubrir
+              el déficit. Ajusta la convocatoria o cambia la configuración de
+              equipos.
+            </span>
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          {!diagnostico.sinSolucion && (
+            <button
+              onClick={() => onResolve(asignaciones)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500 text-white text-xs font-bold rounded-lg hover:bg-purple-600 transition"
+            >
+              <Shuffle className="h-3.5 w-3.5" /> Generar con estos roles
+            </button>
+          )}
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[var(--c-border)] text-[var(--c-muted)] hover:bg-[var(--c-surface2)] transition"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -219,14 +386,15 @@ function TabButton({ active, onClick, icon: Icon, label }) {
 const calcularNivelEquipo = (jugadores) => {
   if (!jugadores?.length) return "0.0";
   return (
-    jugadores.reduce((acc, j) => acc + Number(j.nivel || 0), 0) /
-    jugadores.length
+    jugadores.reduce(
+      (acc, j) => acc + Number(j.nivel_efectivo || j.nivel || 0),
+      0,
+    ) / jugadores.length
   ).toFixed(1);
 };
 
 const calcularRanking = (fixtureActual, listaEquipos) => {
   if (!fixtureActual || !listaEquipos) return [];
-
   const stats = {};
   listaEquipos.forEach((eq) => {
     stats[eq.idTemp] = {
@@ -239,15 +407,14 @@ const calcularRanking = (fixtureActual, listaEquipos) => {
       puntosContra: 0,
     };
   });
-
   fixtureActual.forEach((ronda) => {
     if (!ronda.partidos) return;
     ronda.partidos.forEach((partido) => {
-      const s1 = partido.score_equipo1;
-      const s2 = partido.score_equipo2;
+      const s1 = partido.score_equipo1,
+        s2 = partido.score_equipo2;
       if (s1 !== undefined && s2 !== undefined && s1 !== "" && s2 !== "") {
-        const pts1 = Number(s1);
-        const pts2 = Number(s2);
+        const pts1 = Number(s1),
+          pts2 = Number(s2);
         if (stats[partido.equipo1] && stats[partido.equipo2]) {
           stats[partido.equipo1].jugados += 1;
           stats[partido.equipo2].jugados += 1;
@@ -266,17 +433,96 @@ const calcularRanking = (fixtureActual, listaEquipos) => {
       }
     });
   });
-
   return Object.values(stats)
     .map((item) => ({
       ...item,
       diferencia: item.puntosFavor - item.puntosContra,
     }))
-    .sort((a, b) => {
-      if (b.ganados !== a.ganados) return b.ganados - a.ganados;
-      if (b.diferencia !== a.diferencia) return b.diferencia - a.diferencia;
-      return b.puntosFavor - a.puntosFavor;
-    });
+    .sort(
+      (a, b) =>
+        b.ganados - a.ganados ||
+        b.diferencia - a.diferencia ||
+        b.puntosFavor - a.puntosFavor,
+    );
+};
+
+/**
+ * Dado un jugador y un mapa de roles asignados para la jornada,
+ * devuelve el jugador enriquecido con su posición efectiva y nivel efectivo.
+ */
+const enriquecerJugador = (j, rolesJornada = {}) => {
+  const rolAsignado = rolesJornada[j.id];
+  if (rolAsignado && rolAsignado !== j.posicion_principal) {
+    return {
+      ...j,
+      posicion_efectiva: rolAsignado,
+      nivel_efectivo: Number(j.nivel_secundario || j.nivel),
+      usandoSecundaria: true,
+    };
+  }
+  return {
+    ...j,
+    posicion_efectiva: j.posicion_principal,
+    nivel_efectivo: Number(j.nivel),
+    usandoSecundaria: false,
+  };
+};
+
+/**
+ * Analiza si la convocatoria cubre las posiciones requeridas.
+ * Retorna { ok, deficit, candidatos, sinSolucion }
+ */
+const diagnosticarPosiciones = (presentes, cantEquipos, rolesJornada = {}) => {
+  const necesario = {
+    Armador: cantEquipos,
+    Opuesto: cantEquipos,
+    Central: cantEquipos * 2,
+    Punta: cantEquipos * 2,
+  };
+
+  // Contar posiciones efectivas (usando rolesJornada)
+  const conteo = { Armador: 0, Opuesto: 0, Central: 0, Punta: 0 };
+  presentes.forEach((j) => {
+    const enr = enriquecerJugador(j, rolesJornada);
+    if (conteo[enr.posicion_efectiva] !== undefined)
+      conteo[enr.posicion_efectiva]++;
+  });
+
+  const deficit = POSICIONES.filter((p) => conteo[p] < necesario[p]).map(
+    (p) => ({ pos: p, necesario: necesario[p], disponible: conteo[p] }),
+  );
+
+  if (deficit.length === 0)
+    return { ok: true, deficit: [], candidatos: [], sinSolucion: false };
+
+  // Buscar jugadores que puedan cubrir el déficit con su posición secundaria
+  // (sin haber sido ya asignados a su secundaria)
+  const candidatos = presentes
+    .filter((j) => {
+      if (!j.posicion_secundaria || !j.nivel_secundario) return false;
+      if (rolesJornada[j.id] === j.posicion_secundaria) return false; // ya asignado
+      return deficit.some((d) => d.pos === j.posicion_secundaria);
+    })
+    .map((j) => ({
+      jugadorId: j.id,
+      nombre: j.nombre_completo,
+      posicionPrincipal: j.posicion_principal,
+      nivelPrincipal: Number(j.nivel).toFixed(1),
+      posicionSecundaria: j.posicion_secundaria,
+      nivelSecundario: Number(j.nivel_secundario).toFixed(1),
+      posicionSugerida: j.posicion_secundaria,
+    }));
+
+  // Verificar si con los candidatos se puede cubrir el déficit
+  const cobertura = { ...conteo };
+  candidatos.forEach((c) => {
+    cobertura[c.posicionSugerida] = (cobertura[c.posicionSugerida] || 0) + 1;
+  });
+  const sinSolucion = deficit.some(
+    (d) => (cobertura[d.pos] || 0) < d.necesario,
+  );
+
+  return { ok: false, deficit, candidatos, sinSolucion };
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────────
@@ -293,32 +539,38 @@ export default function PartidosTab({
   const [loadingHistorial, setLoadingHistorial] = useState(false);
 
   const [asistencia, setAsistencia] = useState([]);
+  const [rolesJornada, setRolesJornada] = useState({}); // jugadorId → posicion efectiva
+  const [searchQuery, setSearchQuery] = useState("");
+  const [posFilter, setPosFilter] = useState("Todas");
+  const [groupByPos, setGroupByPos] = useState(true);
+  const [collapsedPos, setCollapsedPos] = useState({});
+
   const [config, setConfig] = useState({
     cantEquipos: 4,
     cantRondas: 3,
     cantLosas: 2,
   });
 
-  // Estado atómico: equipos y fixture siempre se actualizan juntos,
-  // evitando renders intermedios donde uno existe y el otro no.
   const [resultado, setResultado] = useState(null); // { equipos, fixture }
+  const [diagnostico, setDiagnostico] = useState(null); // panel de advertencia activo
+  const [pendienteGenerar, setPendienteGenerar] = useState(false); // esperando resolución
 
   const equipos = resultado?.equipos ?? null;
   const fixture = resultado?.fixture ?? null;
+
   const [nombreJornada, setNombreJornada] = useState("");
   const [fechaJornada, setFechaJornada] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [jornadaSeleccionada, setJornadaSeleccionada] = useState(null);
   const [jugadorSeleccionadoCambio, setJugadorSeleccionadoCambio] =
     useState(null);
-  const [puntosPorRonda, setPuntosPorRonda] = useState({});
 
   const esConsulta = !!jornadaSeleccionada;
   const rankingData = calcularRanking(fixture, equipos);
   const jugadoresActivos = jugadores.filter((j) => j.activo);
   const totalRequerido = config.cantEquipos * 6;
 
-  // ─── Init ─────────────────────────────────────────────────────────────────────
+  // ─── Init ───────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     injectScrollbarStyles();
@@ -343,7 +595,40 @@ export default function PartidosTab({
     if (subTab === "historial") fetchHistorial();
   }, [subTab]);
 
-  // ─── Data ─────────────────────────────────────────────────────────────────────
+  // ─── Convocatoria filtrada ───────────────────────────────────────────────────
+
+  const jugadoresFiltrados = useMemo(() => {
+    return jugadoresActivos.filter((j) => {
+      const q = searchQuery.toLowerCase();
+      const matchNombre =
+        !q ||
+        (j.nombre_completo || "").toLowerCase().includes(q) ||
+        (j.apodo || "").toLowerCase().includes(q);
+      const matchPos =
+        posFilter === "Todas" ||
+        j.posicion_principal === posFilter ||
+        j.posicion_secundaria === posFilter;
+      return matchNombre && matchPos;
+    });
+  }, [jugadoresActivos, searchQuery, posFilter]);
+
+  const jugadoresPorPosicion = useMemo(() => {
+    const grupos = {};
+    POSICIONES.forEach((p) => {
+      grupos[p] = [];
+    });
+    jugadoresFiltrados.forEach((j) => {
+      const pos = j.posicion_principal;
+      if (grupos[pos]) grupos[pos].push(j);
+      else grupos[pos] = [j];
+    });
+    return grupos;
+  }, [jugadoresFiltrados]);
+
+  const toggleCollapsed = (pos) =>
+    setCollapsedPos((prev) => ({ ...prev, [pos]: !prev[pos] }));
+
+  // ─── Data ────────────────────────────────────────────────────────────────────
 
   const fetchHistorial = async () => {
     setLoadingHistorial(true);
@@ -361,14 +646,21 @@ export default function PartidosTab({
     setResultado(null);
     setJugadorSeleccionadoCambio(null);
     setJornadaSeleccionada(null);
+    setDiagnostico(null);
+    setPendienteGenerar(false);
   };
 
-  // ─── Asistencia ───────────────────────────────────────────────────────────────
+  // ─── Asistencia ──────────────────────────────────────────────────────────────
 
   const toggleAsistencia = (id) => {
     setAsistencia((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
     );
+    setRolesJornada((prev) => {
+      const n = { ...prev };
+      delete n[id];
+      return n;
+    });
     limpiarResultado();
   };
 
@@ -378,47 +670,42 @@ export default function PartidosTab({
         ? []
         : jugadoresActivos.map((j) => j.id),
     );
+    setRolesJornada({});
     limpiarResultado();
   };
 
-  // ─── Generación ───────────────────────────────────────────────────────────────
+  // Cambiar rol de un jugador en la convocatoria
+  const cambiarRolJornada = (jugadorId, nuevaPos) => {
+    setRolesJornada((prev) => ({ ...prev, [jugadorId]: nuevaPos }));
+    limpiarResultado();
+  };
 
-  // 🔑 Modificada para que RETORNE el fixture en lugar de buscar un "setFixture" que no existe
-  const generarFixturePartidos = (equiposActuales, puntosActuales) => {
+  // ─── Fixture ─────────────────────────────────────────────────────────────────
+
+  const generarFixturePartidos = (equiposActuales) => {
     if (!equiposActuales || equiposActuales.length < 2) return null;
-
     const numEquipos = equiposActuales.length;
-    // Mapeamos los equipos reales
     const listaEquiposIds = equiposActuales.map((e) => e.idTemp);
-
-    // Bandera para saber si originalmente era impar
     const esImpar = numEquipos % 2 !== 0;
-
-    if (esImpar) {
-      listaEquiposIds.push("DESCANSO");
-    }
-
+    if (esImpar) listaEquiposIds.push("DESCANSO");
     const totalEquiposEfectivos = listaEquiposIds.length;
     const rondasAManejar = config.cantRondas || 3;
+    const pts = { 1: 18, 2: 21, 3: 25 };
 
-    const rondas = Array.from({ length: rondasAManejar }, (_, r) => {
-      const partidosDeEstaRonda = [];
+    return Array.from({ length: rondasAManejar }, (_, r) => {
       const copiaIds = [...listaEquiposIds];
       const rondaIndex = r % (totalEquiposEfectivos - 1);
-
       for (let i = 0; i < rondaIndex; i++) {
-        const ultimo = copiaIds.pop();
-        copiaIds.splice(1, 0, ultimo);
+        const u = copiaIds.pop();
+        copiaIds.splice(1, 0, u);
       }
-
+      const partidosDeEstaRonda = [];
       let losaActual = 1;
-      let equipoLibreEsteTurno = null; // 👈 Variable para capturar el que descansa
+      let equipoLibreEsteTurno = null;
 
       for (let i = 0; i < totalEquiposEfectivos / 2; i++) {
-        const eq1 = copiaIds[i];
-        const eq2 = copiaIds[totalEquiposEfectivos - 1 - i];
-
-        // 🔍 Si detectamos el "DESCANSO", el OTRO equipo es el que queda libre
+        const eq1 = copiaIds[i],
+          eq2 = copiaIds[totalEquiposEfectivos - 1 - i];
         if (eq1 === "DESCANSO") {
           equipoLibreEsteTurno = eq2;
           continue;
@@ -427,46 +714,40 @@ export default function PartidosTab({
           equipoLibreEsteTurno = eq1;
           continue;
         }
-
-        let losa = losaActual;
-        if (config.cantLosas === 1) {
-          losa = 1;
-        } else {
-          losa = ((losaActual - 1) % config.cantLosas) + 1;
-          if ((r + 1) % 2 === 0) {
-            losa = config.cantLosas - losa + 1;
-          }
-        }
-
+        let losa =
+          config.cantLosas === 1
+            ? 1
+            : ((losaActual - 1) % config.cantLosas) + 1;
+        if (config.cantLosas > 1 && (r + 1) % 2 === 0)
+          losa = config.cantLosas - losa + 1;
         partidosDeEstaRonda.push({
           id_partido_temp: `${r + 1}-${partidosDeEstaRonda.length}`,
           equipo1: eq1,
           equipo2: eq2,
-          losa: losa,
+          losa,
           score_equipo1: "",
           score_equipo2: "",
         });
-
         losaActual++;
       }
 
-      // Buscamos el objeto completo del equipo que descansa para tener su nombre real
       const infoEquipoDescansa =
         equiposActuales.find((e) => e.idTemp === equipoLibreEsteTurno) || null;
-
       return {
         ronda: r + 1,
-        puntos: puntosActuales[r + 1] || 21,
+        puntos: pts[r + 1] || 21,
         partidos: partidosDeEstaRonda,
-        // 🔑 Guardamos la información del equipo que descansa en esta ronda específica
         equipoDescansa: infoEquipoDescansa,
       };
     });
-
-    return rondas;
   };
 
-  const generarTorneoCompleto = () => {
+  /**
+   * Intenta generar con los roles actuales.
+   * Si hay déficit, muestra el panel de resolución.
+   * Si rolesExtraMap viene definido, lo usa y fuerza la generación.
+   */
+  const generarTorneoCompleto = (rolesExtraMap = null) => {
     if (asistencia.length !== totalRequerido) {
       notify.warning(
         "Convocatoria incompleta",
@@ -475,42 +756,48 @@ export default function PartidosTab({
       return;
     }
 
+    const rolesEfectivos = rolesExtraMap ?? rolesJornada;
     const asistenciaIdsNumeros = asistencia.map((id) => Number(id));
     const presentes = jugadores.filter((j) =>
       asistenciaIdsNumeros.includes(Number(j.id)),
     );
 
-    const bolsas = {
-      armadores: presentes.filter((j) =>
-        ["armador", "armadora"].includes(
-          j.posicion_principal?.trim().toLowerCase(),
-        ),
-      ),
-      opuestos: presentes.filter((j) =>
-        ["opuesto", "opuesta"].includes(
-          j.posicion_principal?.trim().toLowerCase(),
-        ),
-      ),
-      centrales: presentes.filter(
-        (j) => j.posicion_principal?.trim().toLowerCase() === "central",
-      ),
-      puntas: presentes.filter(
-        (j) => j.posicion_principal?.trim().toLowerCase() === "punta",
-      ),
-    };
+    // Enriquecer jugadores con roles efectivos
+    const presentesEnriquecidos = presentes.map((j) =>
+      enriquecerJugador(j, rolesEfectivos),
+    );
 
-    if (
-      bolsas.armadores.length !== config.cantEquipos ||
-      bolsas.opuestos.length !== config.cantEquipos ||
-      bolsas.centrales.length !== config.cantEquipos * 2 ||
-      bolsas.puntas.length !== config.cantEquipos * 2
-    ) {
-      notify.warning(
-        "Posiciones incorrectas",
-        "La cantidad de jugadores por posición no coincide con la configuración de equipos.",
+    // Verificar posiciones
+    const diag = diagnosticarPosiciones(
+      presentes,
+      config.cantEquipos,
+      rolesEfectivos,
+    );
+
+    if (!diag.ok && !rolesExtraMap) {
+      // Mostrar panel de resolución
+      setDiagnostico(diag);
+      setPendienteGenerar(true);
+      return;
+    }
+
+    if (!diag.ok && rolesExtraMap) {
+      // Se intentó resolver pero sigue sin poder
+      notify.error(
+        "Sin solución válida",
+        "Aun con las posiciones secundarias no se pueden cubrir todos los equipos. Ajusta la convocatoria.",
       );
       return;
     }
+
+    setDiagnostico(null);
+    setPendienteGenerar(false);
+
+    // Armar bolsas por posición efectiva
+    const bolsas = { Armador: [], Opuesto: [], Central: [], Punta: [] };
+    presentesEnriquecidos.forEach((j) => {
+      if (bolsas[j.posicion_efectiva]) bolsas[j.posicion_efectiva].push(j);
+    });
 
     const restriccionesActivas = restricciones.filter(
       (r) =>
@@ -523,10 +810,10 @@ export default function PartidosTab({
 
     for (let i = 0; i < 3000; i++) {
       const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
-      const arm = shuffle(bolsas.armadores);
-      const op = shuffle(bolsas.opuestos);
-      const cen = shuffle(bolsas.centrales);
-      const pun = shuffle(bolsas.puntas);
+      const arm = shuffle(bolsas.Armador);
+      const op = shuffle(bolsas.Opuesto);
+      const cen = shuffle(bolsas.Central);
+      const pun = shuffle(bolsas.Punta);
 
       const candidatos = Array.from({ length: config.cantEquipos }, (_, t) => ({
         idTemp: String.fromCharCode(65 + t),
@@ -545,10 +832,9 @@ export default function PartidosTab({
       for (const eq of candidatos) {
         const ids = eq.jugadores.map((j) => Number(j.id));
         for (const r of restriccionesActivas) {
-          const a = Number(r.jugador_a_id);
-          const b = Number(r.jugador_b_id);
+          const a = Number(r.jugador_a_id),
+            b = Number(r.jugador_b_id);
           const tipo = r.tipo_restriccion?.trim().toLowerCase();
-
           if (tipo === "incompatible" && ids.includes(a) && ids.includes(b)) {
             ok = false;
             break;
@@ -560,18 +846,18 @@ export default function PartidosTab({
         }
         if (!ok) break;
       }
-
       if (!ok) continue;
 
       const niveles = candidatos.map(
         (eq) =>
-          eq.jugadores.reduce((acc, j) => acc + Number(j.nivel || 0), 0) /
-          eq.jugadores.length,
+          eq.jugadores.reduce(
+            (acc, j) => acc + Number(j.nivel_efectivo || j.nivel || 0),
+            0,
+          ) / eq.jugadores.length,
       );
       const media = niveles.reduce((a, n) => a + n, 0) / niveles.length;
       const varianza =
-        niveles.reduce((a, n) => a + Math.pow(n - media, 2), 0) /
-        niveles.length;
+        niveles.reduce((a, n) => a + (n - media) ** 2, 0) / niveles.length;
 
       if (varianza < menorDesviacion) {
         menorDesviacion = varianza;
@@ -582,35 +868,46 @@ export default function PartidosTab({
     if (!mejoresEquipos) {
       notify.error(
         "Sin solución válida",
-        "No se encontró ninguna combinación que respete todas las restricciones activas.",
+        "No se encontró combinación que respete todas las restricciones activas.",
       );
       return;
     }
 
-    const pts = { 1: 18, 2: 21, 3: 25 };
-    setPuntosPorRonda(pts);
-
-    // 🔑 Calculamos el fixture en una variable local primero
-    const fixtureGenerado = generarFixturePartidos(mejoresEquipos, pts);
-
+    const fixtureGenerado = generarFixturePartidos(mejoresEquipos);
     if (!fixtureGenerado) {
-      notify.error("Error", "No se pudo estructurar el fixture de partidos.");
+      notify.error("Error", "No se pudo estructurar el fixture.");
       return;
     }
 
-    // 🔑 ACTUALIZACIÓN DE ESTADO SIMULTÁNEA: Guardamos ambos elementos al mismo tiempo en 'resultado'
-    setResultado({
-      equipos: mejoresEquipos,
-      fixture: fixtureGenerado,
-    });
+    setResultado({ equipos: mejoresEquipos, fixture: fixtureGenerado });
 
+    // Informar si se usaron posiciones secundarias
+    const usandoSecundaria = presentesEnriquecidos.filter(
+      (j) => j.usandoSecundaria,
+    );
+    if (usandoSecundaria.length > 0) {
+      notify.info(
+        "Posiciones secundarias activas",
+        `${usandoSecundaria.map((j) => j.nombre_completo).join(", ")} jugarán en su posición secundaria.`,
+        7000,
+      );
+    }
     notify.success(
       "¡Fixture generado!",
       "Los equipos y partidos están listos.",
     );
   };
 
-  // ─── Scores / Cambios ─────────────────────────────────────────────────────────
+  // Cuando el usuario resuelve el panel de advertencia
+  const handleResolverDiagnostico = (asignaciones) => {
+    // asignaciones: { jugadorId → posicionElegida }
+    const nuevosRoles = { ...rolesJornada, ...asignaciones };
+    setRolesJornada(nuevosRoles);
+    setDiagnostico(null);
+    generarTorneoCompleto(nuevosRoles);
+  };
+
+  // ─── Scores / Cambios ────────────────────────────────────────────────────────
 
   const handleScoreChange = (rondaIndex, partidoId, campo, valor) => {
     setResultado((prev) => ({
@@ -630,7 +927,6 @@ export default function PartidosTab({
 
   const handlePuntosRondaChange = (rondaIndex, valor) => {
     const v = valor === "" ? "" : Number(valor);
-    setPuntosPorRonda((prev) => ({ ...prev, [rondaIndex + 1]: v }));
     setResultado((prev) => ({
       ...prev,
       fixture: prev.fixture.map((r, ri) =>
@@ -649,7 +945,6 @@ export default function PartidosTab({
       setJugadorSeleccionadoCambio(null);
       return;
     }
-
     const copia = equipos.map((eq) => ({
       ...eq,
       jugadores: [...eq.jugadores],
@@ -681,7 +976,7 @@ export default function PartidosTab({
     }));
   };
 
-  // ─── Persistencia ─────────────────────────────────────────────────────────────
+  // ─── Persistencia ────────────────────────────────────────────────────────────
 
   const handleGuardarTodo = async () => {
     if (typeof onGuardarJornada !== "function") return;
@@ -704,6 +999,7 @@ export default function PartidosTab({
       );
       limpiarResultado();
       setAsistencia([]);
+      setRolesJornada({});
       const hoy = new Date();
       setFechaJornada(
         `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`,
@@ -725,22 +1021,18 @@ export default function PartidosTab({
       const r = await jornadasService.updateScores(jornadaSeleccionada.id, {
         fixture,
       });
-      if (r.status === "success") {
+      if (r.status === "success")
         notify.success(
           "Marcadores actualizados",
-          "Los resultados se guardaron en la base de datos.",
+          "Los resultados se guardaron.",
         );
-      } else {
+      else
         notify.warning(
           "Sin confirmación",
-          "El servidor procesó la solicitud pero no confirmó el resultado.",
+          "El servidor no confirmó el resultado.",
         );
-      }
     } catch {
-      notify.error(
-        "Error de conexión",
-        "No se pudo conectar con el servidor para guardar los marcadores.",
-      );
+      notify.error("Error de conexión", "No se pudo guardar los marcadores.");
     } finally {
       setGuardando(false);
     }
@@ -765,23 +1057,16 @@ export default function PartidosTab({
         });
         setSubTab("nueva");
       } else {
-        notify.error(
-          "Error al cargar",
-          "No se pudo obtener el detalle de esta jornada.",
-        );
+        notify.error("Error al cargar", "No se pudo obtener el detalle.");
       }
     } catch {
-      notify.error(
-        "Error de conexión",
-        "Hubo un problema al consultar el detalle de la jornada.",
-      );
+      notify.error("Error de conexión", "Problema al consultar la jornada.");
     }
   };
 
   const exportarAExcel = () => {
     if (!equipos || !fixture) return;
     const wb = XLSX.utils.book_new();
-
     const datosEquipos = [];
     equipos.forEach((eq) => {
       datosEquipos.push([
@@ -792,8 +1077,8 @@ export default function PartidosTab({
       eq.jugadores.forEach((j) =>
         datosEquipos.push([
           j.nombre_completo || j.nombre || "",
-          j.posicion_principal || "",
-          j.nivel || "",
+          j.posicion_efectiva || j.posicion_principal || "",
+          j.nivel_efectivo || j.nivel || "",
         ]),
       );
       datosEquipos.push([]);
@@ -803,12 +1088,11 @@ export default function PartidosTab({
       XLSX.utils.aoa_to_sheet(datosEquipos),
       "Equipos",
     );
-
     const datosPartidos = [
       ["Ronda", "Equipo 1", "Score E1", "", "Score E2", "Equipo 2", "Losa"],
     ];
     fixture.forEach((r) => {
-      r.partidos.forEach((p) => {
+      r.partidos.forEach((p) =>
         datosPartidos.push([
           `Ronda ${r.ronda}`,
           equipos.find((e) => e.idTemp === p.equipo1)?.nombre || p.equipo1,
@@ -817,8 +1101,8 @@ export default function PartidosTab({
           p.score_equipo2 ?? "",
           equipos.find((e) => e.idTemp === p.equipo2)?.nombre || p.equipo2,
           `Losa ${p.losa}`,
-        ]);
-      });
+        ]),
+      );
     });
     XLSX.utils.book_append_sheet(
       wb,
@@ -826,13 +1110,29 @@ export default function PartidosTab({
       "Partidos",
     );
     XLSX.writeFile(wb, `${nombreJornada.replace(/\s+/g, "_")}.xlsx`);
-    notify.success(
-      "Excel exportado",
-      `Archivo "${nombreJornada}" descargado correctamente.`,
-    );
+    notify.success("Excel exportado", `Archivo "${nombreJornada}" descargado.`);
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
+  // ─── Render ──────────────────────────────────────────────────────────────────
+
+  // Contar convocados por posición para la barra de estado
+  const conteoPorPos = useMemo(() => {
+    const ids = asistencia.map((id) => Number(id));
+    const pres = jugadores.filter((j) => ids.includes(Number(j.id)));
+    const conteo = { Armador: 0, Opuesto: 0, Central: 0, Punta: 0 };
+    pres.forEach((j) => {
+      const rol = rolesJornada[j.id] || j.posicion_principal;
+      if (conteo[rol] !== undefined) conteo[rol]++;
+    });
+    return conteo;
+  }, [asistencia, jugadores, rolesJornada]);
+
+  const necesarioPorPos = {
+    Armador: config.cantEquipos,
+    Opuesto: config.cantEquipos,
+    Central: config.cantEquipos * 2,
+    Punta: config.cantEquipos * 2,
+  };
 
   return (
     <>
@@ -871,8 +1171,9 @@ export default function PartidosTab({
         {/* ══ PESTAÑA: NUEVA JORNADA ══ */}
         {subTab === "nueva" && (
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-            {/* Columna izquierda */}
+            {/* ── Columna izquierda ── */}
             <div className="xl:col-span-1 space-y-4">
+              {/* Configuración */}
               <SectionCard title="Configuración" icon={Settings} accent>
                 <div className="space-y-3">
                   <div>
@@ -932,12 +1233,22 @@ export default function PartidosTab({
                 </div>
               </SectionCard>
 
+              {/* Convocatoria */}
               {!esConsulta && (
-                <SectionCard
-                  title={`Convocatoria (${asistencia.length} / ${totalRequerido})`}
-                  icon={Users}
-                  accent
-                  action={
+                <div className="border border-[var(--c-border)] rounded-xl bg-[var(--c-surface)] shadow-sm overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--c-border)] bg-[var(--c-surface2)]/50">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-purple-500" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-[var(--c-text)]">
+                        Convocatoria
+                        <span
+                          className={`ml-1.5 font-mono ${asistencia.length === totalRequerido ? "text-emerald-500" : "text-purple-500"}`}
+                        >
+                          {asistencia.length}/{totalRequerido}
+                        </span>
+                      </span>
+                    </div>
                     <button
                       onClick={seleccionarTodos}
                       className="text-[10px] text-purple-500 font-semibold hover:underline"
@@ -946,67 +1257,365 @@ export default function PartidosTab({
                         ? "Limpiar"
                         : "Todos"}
                     </button>
-                  }
-                >
-                  <div className="vw-scroll space-y-1 max-h-[calc(100vh-480px)] overflow-y-auto pr-1">
-                    {jugadoresActivos.map((j) => {
-                      const checked = asistencia.includes(j.id);
-                      return (
+                  </div>
+
+                  <div className="p-3 space-y-3">
+                    {/* Barra de búsqueda */}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--c-muted)]" />
+                      <input
+                        type="text"
+                        placeholder="Buscar jugador..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--c-surface2)] border border-[var(--c-border)] rounded-lg text-[var(--c-text)] focus:outline-none focus:border-purple-500 placeholder:text-[var(--c-muted)]"
+                      />
+                      {searchQuery && (
                         <button
-                          key={j.id}
-                          onClick={() => toggleAsistencia(j.id)}
-                          className={`w-full flex items-center justify-between p-1.5 rounded-lg border text-left text-xs transition ${
-                            checked
-                              ? "bg-purple-500/10 border-purple-500/30"
-                              : "bg-[var(--c-surface2)]/30 border-transparent hover:bg-[var(--c-surface2)]"
-                          }`}
+                          onClick={() => setSearchQuery("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--c-muted)] hover:text-[var(--c-text)]"
                         >
-                          <div className="flex items-center gap-2 truncate">
-                            {checked ? (
-                              <CheckSquare className="h-3.5 w-3.5 text-purple-500 shrink-0" />
-                            ) : (
-                              <Square className="h-3.5 w-3.5 text-[var(--c-muted)] shrink-0" />
-                            )}
-                            <span className="truncate font-medium text-[var(--c-text)]">
-                              {j.nombre_completo}
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Filtros de posición */}
+                    <div className="flex flex-wrap gap-1">
+                      {["Todas", ...POSICIONES].map((p) => {
+                        const c = p === "Todas" ? null : POS_COLOR[p];
+                        const active = posFilter === p;
+                        return (
+                          <button
+                            key={p}
+                            onClick={() => setPosFilter(p)}
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition ${
+                              active
+                                ? c
+                                  ? `${c.bg} ${c.text} ${c.border}`
+                                  : "bg-purple-500/15 text-purple-500 border-purple-500/30"
+                                : "bg-[var(--c-surface2)] text-[var(--c-muted)] border-transparent hover:border-[var(--c-border)]"
+                            }`}
+                          >
+                            {p === "Todas" ? "Todas" : POS_ABBR[p]}
+                          </button>
+                        );
+                      })}
+                      <button
+                        onClick={() => setGroupByPos((v) => !v)}
+                        title={
+                          groupByPos ? "Vista plana" : "Agrupar por posición"
+                        }
+                        className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded border transition ${
+                          groupByPos
+                            ? "bg-purple-500/15 text-purple-500 border-purple-500/30"
+                            : "bg-[var(--c-surface2)] text-[var(--c-muted)] border-transparent"
+                        }`}
+                      >
+                        {groupByPos ? "Agrupado" : "Plano"}
+                      </button>
+                    </div>
+
+                    {/* Mini-resumen de posiciones convocadas */}
+                    <div className="grid grid-cols-4 gap-1">
+                      {POSICIONES.map((p) => {
+                        const actual = conteoPorPos[p];
+                        const nec = necesarioPorPos[p];
+                        const ok = actual >= nec;
+                        const c = POS_COLOR[p];
+                        return (
+                          <div
+                            key={p}
+                            className={`flex flex-col items-center p-1 rounded border ${ok ? `${c.bg} ${c.border}` : "bg-red-500/5 border-red-500/20"}`}
+                          >
+                            <span
+                              className={`text-[8px] font-bold ${ok ? c.text : "text-red-500"}`}
+                            >
+                              {POS_ABBR[p]}
+                            </span>
+                            <span
+                              className={`text-[10px] font-mono font-bold ${ok ? c.text : "text-red-500"}`}
+                            >
+                              {actual}
+                              <span className="opacity-50">/{nec}</span>
                             </span>
                           </div>
-                          <span className="text-[9px] font-mono opacity-50 ml-1">
-                            ★{Number(j.nivel).toFixed(1)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
 
-                  <div className="mt-3">
-                    <div className="h-1 bg-[var(--c-surface2)] rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-purple-500 transition-all"
-                        style={{
-                          width: `${Math.min((asistencia.length / totalRequerido) * 100, 100)}%`,
+                    {/* Lista de jugadores */}
+                    <div className="vw-scroll space-y-2 max-h-[calc(100vh-560px)] min-h-[120px] overflow-y-auto pr-1">
+                      {groupByPos
+                        ? POSICIONES.map((pos) => {
+                            const grupo = jugadoresPorPosicion[pos];
+                            if (!grupo?.length) return null;
+                            const c = POS_COLOR[pos];
+                            const collapsed = collapsedPos[pos];
+                            const selEnPos = grupo.filter((j) =>
+                              asistencia.includes(j.id),
+                            ).length;
+                            return (
+                              <div
+                                key={pos}
+                                className="overflow-hidden rounded-lg border border-[var(--c-border)]"
+                              >
+                                {/* Cabecera del grupo */}
+                                <button
+                                  onClick={() => toggleCollapsed(pos)}
+                                  className={`w-full flex items-center justify-between px-2.5 py-1.5 ${c.bg} border-b border-[var(--c-border)] transition hover:opacity-90`}
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <PosBadge pos={pos} small />
+                                    <span
+                                      className={`text-[10px] font-bold ${c.text}`}
+                                    >
+                                      {pos}
+                                    </span>
+                                    <span
+                                      className={`text-[8px] font-mono ${c.text} opacity-70`}
+                                    >
+                                      ({selEnPos}/{grupo.length})
+                                    </span>
+                                  </div>
+                                  {collapsed ? (
+                                    <ChevronDown
+                                      className={`h-3 w-3 ${c.text}`}
+                                    />
+                                  ) : (
+                                    <ChevronUp
+                                      className={`h-3 w-3 ${c.text}`}
+                                    />
+                                  )}
+                                </button>
+
+                                {!collapsed && (
+                                  <div className="divide-y divide-[var(--c-border)]/50">
+                                    {grupo.map((j) => {
+                                      const checked = asistencia.includes(j.id);
+                                      const rolActual =
+                                        rolesJornada[j.id] ||
+                                        j.posicion_principal;
+                                      const usandoSecundaria =
+                                        rolActual !== j.posicion_principal;
+                                      return (
+                                        <div
+                                          key={j.id}
+                                          className={`flex items-center gap-1.5 px-2 py-1.5 transition ${checked ? "bg-purple-500/5" : "hover:bg-[var(--c-surface2)]/50"}`}
+                                        >
+                                          {/* Checkbox */}
+                                          <button
+                                            onClick={() =>
+                                              toggleAsistencia(j.id)
+                                            }
+                                            className="shrink-0"
+                                          >
+                                            {checked ? (
+                                              <CheckSquare className="h-3.5 w-3.5 text-purple-500" />
+                                            ) : (
+                                              <Square className="h-3.5 w-3.5 text-[var(--c-muted)]" />
+                                            )}
+                                          </button>
+
+                                          {/* Nombre */}
+                                          <div
+                                            className="flex-1 min-w-0 cursor-pointer"
+                                            onClick={() =>
+                                              toggleAsistencia(j.id)
+                                            }
+                                          >
+                                            <p
+                                              className={`text-xs font-medium truncate ${checked ? "text-[var(--c-text)]" : "text-[var(--c-muted)]"}`}
+                                            >
+                                              {j.nombre_completo}
+                                            </p>
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                              <span className="text-[8px] font-mono text-[var(--c-muted)]">
+                                                ★{Number(j.nivel).toFixed(1)}
+                                              </span>
+                                              {j.posicion_secundaria &&
+                                                j.nivel_secundario && (
+                                                  <>
+                                                    <span className="text-[7px] text-[var(--c-muted)] opacity-50">
+                                                      |
+                                                    </span>
+                                                    <PosBadge
+                                                      pos={
+                                                        j.posicion_secundaria
+                                                      }
+                                                      small
+                                                    />
+                                                    <span className="text-[8px] font-mono text-[var(--c-muted)] opacity-70">
+                                                      ★
+                                                      {Number(
+                                                        j.nivel_secundario,
+                                                      ).toFixed(1)}
+                                                    </span>
+                                                  </>
+                                                )}
+                                            </div>
+                                          </div>
+
+                                          {/* Selector de rol (solo si está convocado y tiene secundaria) */}
+                                          {checked &&
+                                            j.posicion_secundaria &&
+                                            j.nivel_secundario && (
+                                              <select
+                                                value={rolActual}
+                                                onChange={(e) =>
+                                                  cambiarRolJornada(
+                                                    j.id,
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                className={`text-[8px] font-bold px-1 py-0.5 rounded border focus:outline-none focus:border-purple-500 shrink-0 ${
+                                                  usandoSecundaria
+                                                    ? "bg-amber-500/10 border-amber-500/30 text-amber-600"
+                                                    : "bg-[var(--c-surface2)] border-[var(--c-border)] text-[var(--c-muted)]"
+                                                }`}
+                                                title="Rol en esta jornada"
+                                              >
+                                                <option
+                                                  value={j.posicion_principal}
+                                                >
+                                                  {
+                                                    POS_ABBR[
+                                                      j.posicion_principal
+                                                    ]
+                                                  }
+                                                </option>
+                                                <option
+                                                  value={j.posicion_secundaria}
+                                                >
+                                                  {
+                                                    POS_ABBR[
+                                                      j.posicion_secundaria
+                                                    ]
+                                                  }{" "}
+                                                  2°
+                                                </option>
+                                              </select>
+                                            )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        : // Vista plana
+                          jugadoresFiltrados.map((j) => {
+                            const checked = asistencia.includes(j.id);
+                            const rolActual =
+                              rolesJornada[j.id] || j.posicion_principal;
+                            const usandoSecundaria =
+                              rolActual !== j.posicion_principal;
+                            return (
+                              <div
+                                key={j.id}
+                                className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition ${checked ? "bg-purple-500/5 border-purple-500/20" : "border-transparent hover:bg-[var(--c-surface2)]/50"}`}
+                              >
+                                <button
+                                  onClick={() => toggleAsistencia(j.id)}
+                                  className="shrink-0"
+                                >
+                                  {checked ? (
+                                    <CheckSquare className="h-3.5 w-3.5 text-purple-500" />
+                                  ) : (
+                                    <Square className="h-3.5 w-3.5 text-[var(--c-muted)]" />
+                                  )}
+                                </button>
+                                <div
+                                  className="flex-1 min-w-0 cursor-pointer"
+                                  onClick={() => toggleAsistencia(j.id)}
+                                >
+                                  <div className="flex items-center gap-1">
+                                    <PosBadge
+                                      pos={j.posicion_principal}
+                                      small
+                                    />
+                                    <p
+                                      className={`text-xs font-medium truncate ${checked ? "text-[var(--c-text)]" : "text-[var(--c-muted)]"}`}
+                                    >
+                                      {j.nombre_completo}
+                                    </p>
+                                  </div>
+                                  <span className="text-[8px] font-mono text-[var(--c-muted)]">
+                                    ★{Number(j.nivel).toFixed(1)}
+                                  </span>
+                                </div>
+                                {checked &&
+                                  j.posicion_secundaria &&
+                                  j.nivel_secundario && (
+                                    <select
+                                      value={rolActual}
+                                      onChange={(e) =>
+                                        cambiarRolJornada(j.id, e.target.value)
+                                      }
+                                      className={`text-[8px] font-bold px-1 py-0.5 rounded border focus:outline-none focus:border-purple-500 shrink-0 ${usandoSecundaria ? "bg-amber-500/10 border-amber-500/30 text-amber-600" : "bg-[var(--c-surface2)] border-[var(--c-border)] text-[var(--c-muted)]"}`}
+                                    >
+                                      <option value={j.posicion_principal}>
+                                        {POS_ABBR[j.posicion_principal]}
+                                      </option>
+                                      <option value={j.posicion_secundaria}>
+                                        {POS_ABBR[j.posicion_secundaria]} 2°
+                                      </option>
+                                    </select>
+                                  )}
+                              </div>
+                            );
+                          })}
+
+                      {jugadoresFiltrados.length === 0 && (
+                        <p className="text-center text-[10px] text-[var(--c-muted)] py-4">
+                          Sin resultados para "{searchQuery}"
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Progress bar */}
+                    <div>
+                      <div className="h-1 bg-[var(--c-surface2)] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-purple-500 transition-all"
+                          style={{
+                            width: `${Math.min((asistencia.length / totalRequerido) * 100, 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-[var(--c-muted)] mt-1 text-center">
+                        {asistencia.length === totalRequerido
+                          ? "¡Listo para generar!"
+                          : `Faltan ${totalRequerido - asistencia.length} jugadores`}
+                      </p>
+                    </div>
+
+                    {/* Panel de advertencia de posiciones */}
+                    {diagnostico && (
+                      <PositionWarningPanel
+                        diagnostico={diagnostico}
+                        onResolve={handleResolverDiagnostico}
+                        onCancel={() => {
+                          setDiagnostico(null);
+                          setPendienteGenerar(false);
                         }}
                       />
-                    </div>
-                    <p className="text-[10px] text-[var(--c-muted)] mt-1 text-center">
-                      {asistencia.length === totalRequerido
-                        ? "¡Listo para generar!"
-                        : `Faltan ${totalRequerido - asistencia.length} jugadores`}
-                    </p>
-                  </div>
+                    )}
 
-                  <button
-                    onClick={generarTorneoCompleto}
-                    disabled={asistencia.length !== totalRequerido}
-                    className="w-full mt-3 bg-purple-500 text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 disabled:opacity-30 hover:bg-purple-600 transition"
-                  >
-                    <Dices className="h-4 w-4" /> Generar fixture
-                  </button>
-                </SectionCard>
+                    <button
+                      onClick={() => generarTorneoCompleto()}
+                      disabled={asistencia.length !== totalRequerido}
+                      className="w-full mt-1 bg-purple-500 text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 disabled:opacity-30 hover:bg-purple-600 transition"
+                    >
+                      <Dices className="h-4 w-4" /> Generar fixture
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
-            {/* Contenido principal */}
+            {/* ── Contenido principal ── */}
             {fixture && equipos ? (
               <>
                 {/* Columna 2: Fixture */}
@@ -1048,7 +1657,6 @@ export default function PartidosTab({
                         key={rondaData.ronda}
                         className="border border-[var(--c-border)] rounded-xl bg-[var(--c-surface)] overflow-hidden shadow-sm"
                       >
-                        {/* Cabecera de la Ronda */}
                         <div className="flex items-center justify-between px-3 py-2 bg-[var(--c-surface2)] border-b border-[var(--c-border)]">
                           <span className="text-xs font-bold text-[var(--c-text)]">
                             Ronda {rondaData.ronda}
@@ -1071,7 +1679,6 @@ export default function PartidosTab({
                           </div>
                         </div>
 
-                        {/* 🔑 MENSAJE DE EQUIPO EN DESCANSO (Si existe en esta ronda) */}
                         {rondaData.equipoDescansa && (
                           <div className="px-3 py-2 bg-amber-500/5 border-b border-dashed border-[var(--c-border)] flex items-center gap-1.5 text-[11px] text-amber-500 font-medium">
                             <span className="animate-pulse">⏳</span>
@@ -1084,7 +1691,6 @@ export default function PartidosTab({
                           </div>
                         )}
 
-                        {/* Listado de Partidos */}
                         <div className="divide-y divide-dashed divide-[var(--c-border)]">
                           {rondaData.partidos.map((partido, idx) => {
                             const n1 =
@@ -1267,6 +1873,9 @@ export default function PartidosTab({
                             const seleccionado =
                               jugadorSeleccionadoCambio?.teamId === eq.idTemp &&
                               jugadorSeleccionadoCambio?.jugadorId === j.id;
+                            const posEfectiva =
+                              j.posicion_efectiva || j.posicion_principal;
+                            const usandoSec = j.usandoSecundaria;
                             return (
                               <button
                                 key={j.id}
@@ -1283,11 +1892,25 @@ export default function PartidosTab({
                                 <span className="truncate font-medium">
                                   {j.nombre_completo || j.nombre}
                                 </span>
-                                <div className="flex items-center gap-1 text-[9px] font-mono opacity-70 shrink-0 ml-1">
-                                  <span className="uppercase px-1 bg-[var(--c-surface)] rounded text-[var(--c-muted)] font-bold">
-                                    {j.posicion_principal?.substring(0, 3)}
+                                <div className="flex items-center gap-1 text-[9px] font-mono shrink-0 ml-1">
+                                  <span
+                                    className={`uppercase px-1 rounded font-bold ${seleccionado ? "bg-white/20 text-white" : usandoSec ? "bg-amber-500/15 text-amber-500" : "bg-[var(--c-surface)] text-[var(--c-muted)]"}`}
+                                  >
+                                    {posEfectiva?.substring(0, 3)}
+                                    {usandoSec && " 2°"}
                                   </span>
-                                  <span>★{Number(j.nivel).toFixed(1)}</span>
+                                  <span
+                                    className={
+                                      seleccionado
+                                        ? "text-white/80"
+                                        : "opacity-70"
+                                    }
+                                  >
+                                    ★
+                                    {Number(
+                                      j.nivel_efectivo || j.nivel,
+                                    ).toFixed(1)}
+                                  </span>
                                 </div>
                               </button>
                             );

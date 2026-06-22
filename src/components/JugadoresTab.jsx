@@ -8,7 +8,7 @@ const POSICIONES = ["Punta", "Opuesto", "Central", "Armador"];
 function LevelDots({ nivel }) {
   const rating = Number(nivel) || 0;
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <div className="flex items-center">
         {Array.from({ length: 5 }, (_, i) => {
           const filled = rating >= i + 1;
@@ -16,7 +16,7 @@ function LevelDots({ nivel }) {
           return (
             <span
               key={i}
-              className={`h-2 w-2 rounded-full inline-block mx-0.5 bg-[var(--c-accent)] ${
+              className={`h-1.5 w-1.5 rounded-full inline-block mx-0.5 bg-[var(--c-accent)] ${
                 filled
                   ? "opacity-100"
                   : partial
@@ -30,7 +30,7 @@ function LevelDots({ nivel }) {
           );
         })}
       </div>
-      <span className="text-xs font-mono font-semibold text-[var(--c-text)]">
+      <span className="text-[11px] font-mono font-semibold text-[var(--c-text)]">
         {rating.toFixed(1)}
       </span>
     </div>
@@ -56,21 +56,33 @@ function JugadorCard({ jugador, prepararEdicion, handleEliminar }) {
         </div>
       </div>
 
-      {/* Posiciones + nivel */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Posiciones + niveles en bloque ordenado vertical u horizontal */}
+      <div className="space-y-2 pt-1">
+        {/* Fila Principal */}
         {jugador.posicion_principal && (
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--c-surface2)] border border-[var(--c-border)] text-[var(--c-muted)]">
-            {jugador.posicion_principal}
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[var(--c-surface2)] border border-[var(--c-border)] text-[var(--c-text)]">
+              {jugador.posicion_principal} (P)
+            </span>
+            <LevelDots nivel={jugador.nivel} />
+          </div>
         )}
+
+        {/* Fila Secundaria */}
         {jugador.posicion_secundaria && (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--c-surface2)] border border-[var(--c-border)] text-[var(--c-muted)] opacity-70">
-            {jugador.posicion_secundaria}
-          </span>
+          <div className="flex items-center justify-between gap-2 border-t border-dashed border-[var(--c-border)]/50 pt-1.5">
+            <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--c-surface2)] border border-[var(--c-border)] text-[var(--c-muted)] opacity-80">
+              {jugador.posicion_secundaria} (S)
+            </span>
+            {jugador.nivel_secundario ? (
+              <LevelDots nivel={jugador.nivel_secundario} />
+            ) : (
+              <span className="text-[11px] font-mono text-[var(--c-muted)]">
+                —
+              </span>
+            )}
+          </div>
         )}
-        <div className="ml-auto">
-          <LevelDots nivel={jugador.nivel} />
-        </div>
       </div>
 
       {/* Acciones */}
@@ -109,9 +121,14 @@ export default function JugadoresTab({
     ? jugadores.filter((j) => {
         const nombre = (j.nombre_completo || j.nombre || "").toLowerCase();
         const posicion = j.posicion_principal || j.posicionPrincipal || "";
+        // También permitimos buscar o filtrar si la posición secundaria coincide
+        const posicionSec = j.posicion_secundaria || "";
+
         return (
           nombre.includes(busqueda.toLowerCase()) &&
-          (filtroPosicion === "" || posicion === filtroPosicion)
+          (filtroPosicion === "" ||
+            posicion === filtroPosicion ||
+            posicionSec === filtroPosicion)
         );
       })
     : [];
@@ -190,8 +207,9 @@ export default function JugadoresTab({
             <tr>
               <th className="p-3">Jugador</th>
               <th className="p-3">Pos. Principal</th>
+              <th className="p-3">Nivel (Princ.)</th>
               <th className="p-3 hidden lg:table-cell">Pos. Secundaria</th>
-              <th className="p-3">Nivel</th>
+              <th className="p-3 hidden lg:table-cell">Nivel (Secund.)</th>
               <th className="p-3 text-right">Acciones</th>
             </tr>
           </thead>
@@ -204,6 +222,7 @@ export default function JugadoresTab({
                   key={jugador.id}
                   className="hover:bg-[var(--c-surface2)]/50 transition"
                 >
+                  {/* Celda de Identificación */}
                   <td className="p-3 font-semibold text-[var(--c-text)]">
                     {jugador.nombre_completo || jugador.nombre}
                     {jugador.apodo && (
@@ -212,17 +231,44 @@ export default function JugadoresTab({
                       </div>
                     )}
                   </td>
+
+                  {/* Posición Principal */}
                   <td className="p-3 text-[var(--c-muted)]">
-                    <span className="px-2 py-0.5 rounded bg-[var(--c-surface2)] border border-[var(--c-border)]">
+                    <span className="px-2 py-0.5 rounded bg-[var(--c-surface2)] border border-[var(--c-border)] font-medium text-[var(--c-text)]">
                       {jugador.posicion_principal}
                     </span>
                   </td>
-                  <td className="p-3 text-[var(--c-muted)] hidden lg:table-cell">
-                    {jugador.posicion_secundaria || "—"}
-                  </td>
+
+                  {/* Nivel Principal */}
                   <td className="p-3">
                     <LevelDots nivel={jugador.nivel} />
                   </td>
+
+                  {/* Posición Secundaria (md/lg+) */}
+                  <td className="p-3 text-[var(--c-muted)] hidden lg:table-cell">
+                    {jugador.posicion_secundaria ? (
+                      <span className="px-2 py-0.5 rounded bg-[var(--c-surface2)]/50 border border-[var(--c-border)] opacity-80">
+                        {jugador.posicion_secundaria}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--c-muted)] opacity-40">
+                        —
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Nivel Secundario (md/lg+) */}
+                  <td className="p-3 hidden lg:table-cell">
+                    {jugador.posicion_secundaria && jugador.nivel_secundario ? (
+                      <LevelDots nivel={jugador.nivel_secundario} />
+                    ) : (
+                      <span className="text-[11px] font-mono text-[var(--c-muted)] opacity-40">
+                        —
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Acciones de Fila */}
                   <td className="p-3 text-right">
                     <div className="inline-flex gap-2">
                       <button
