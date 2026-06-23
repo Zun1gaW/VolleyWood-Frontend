@@ -684,62 +684,50 @@ export default function PartidosTab({
 
   const generarFixturePartidos = (equiposActuales) => {
     if (!equiposActuales || equiposActuales.length < 2) return null;
-    const numEquipos = equiposActuales.length;
-    const listaEquiposIds = equiposActuales.map((e) => e.idTemp);
-    const esImpar = numEquipos % 2 !== 0;
-    if (esImpar) listaEquiposIds.push("DESCANSO");
-    const totalEquiposEfectivos = listaEquiposIds.length;
-    const rondasAManejar = config.cantRondas || 3;
-    const pts = { 1: 18, 2: 21, 3: 25 };
 
-    return Array.from({ length: rondasAManejar }, (_, r) => {
-      const copiaIds = [...listaEquiposIds];
-      const rondaIndex = r % (totalEquiposEfectivos - 1);
-      for (let i = 0; i < rondaIndex; i++) {
-        const u = copiaIds.pop();
-        copiaIds.splice(1, 0, u);
+    const ids = equiposActuales.map((e) => e.idTemp);
+    const n = ids.length;
+    const cantLosas = config.cantLosas || 2;
+    const cantRondas = config.cantRondas || 3;
+    const ptsPorRonda = [18, 21, 25];
+
+    // ── Generar todos los enfrentamientos C(n,2) ──────────────────────
+    // 4 equipos → 6 partidos, 5 → 10, 6 → 15
+    const todosContraTodos = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        todosContraTodos.push({ equipo1: ids[i], equipo2: ids[j] });
       }
-      const partidosDeEstaRonda = [];
-      let losaActual = 1;
-      let equipoLibreEsteTurno = null;
+    }
 
-      for (let i = 0; i < totalEquiposEfectivos / 2; i++) {
-        const eq1 = copiaIds[i],
-          eq2 = copiaIds[totalEquiposEfectivos - 1 - i];
-        if (eq1 === "DESCANSO") {
-          equipoLibreEsteTurno = eq2;
-          continue;
-        }
-        if (eq2 === "DESCANSO") {
-          equipoLibreEsteTurno = eq1;
-          continue;
-        }
-        let losa =
-          config.cantLosas === 1
-            ? 1
-            : ((losaActual - 1) % config.cantLosas) + 1;
-        if (config.cantLosas > 1 && (r + 1) % 2 === 0)
-          losa = config.cantLosas - losa + 1;
-        partidosDeEstaRonda.push({
-          id_partido_temp: `${r + 1}-${partidosDeEstaRonda.length}`,
-          equipo1: eq1,
-          equipo2: eq2,
-          losa,
-          score_equipo1: "",
-          score_equipo2: "",
-        });
-        losaActual++;
-      }
+    // ── Construir cada ronda con esos mismos enfrentamientos ───────────
+    const rondas = [];
 
-      const infoEquipoDescansa =
-        equiposActuales.find((e) => e.idTemp === equipoLibreEsteTurno) || null;
-      return {
+    for (let r = 0; r < cantRondas; r++) {
+      // Mezclar orden de partidos en cada ronda para variedad
+      const shuffled = [...todosContraTodos].sort(() => Math.random() - 0.5);
+
+      // Distribuir partidos en turnos según cantLosas
+      // Cada "turno" ocupa las losas disponibles en paralelo
+      const partidos = shuffled.map((p, idx) => ({
+        id_partido_temp: `${r + 1}-${idx}`,
+        equipo1: p.equipo1,
+        equipo2: p.equipo2,
+        turno: Math.floor(idx / cantLosas) + 1, // turno dentro de la ronda
+        losa: (idx % cantLosas) + 1,
+        score_equipo1: "",
+        score_equipo2: "",
+      }));
+
+      rondas.push({
         ronda: r + 1,
-        puntos: pts[r + 1] || 21,
-        partidos: partidosDeEstaRonda,
-        equipoDescansa: infoEquipoDescansa,
-      };
-    });
+        puntos: ptsPorRonda[r % ptsPorRonda.length],
+        partidos,
+        equipoDescansa: null, // todos juegan en cada ronda
+      });
+    }
+
+    return rondas;
   };
 
   /**
